@@ -18,6 +18,44 @@
         margin-bottom: 30px;
     }
 
+    /* 🔐 Password box */
+    .auth-box {
+        position: fixed;
+        top: 15px;
+        right: 20px;
+        background: #00000088;
+        padding: 10px 14px;
+        border-radius: 14px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        backdrop-filter: blur(6px);
+    }
+
+    .auth-box input {
+        width: 140px;
+        padding: 6px 8px;
+        border-radius: 10px;
+        border: none;
+        outline: none;
+        font-size: 13px;
+    }
+
+    .auth-box button {
+        padding: 6px 10px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #ffd700, #ffb300);
+        border: none;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .auth-ok {
+        color: #7CFC00;
+        font-weight: bold;
+        margin-left: 6px;
+    }
+
     table {
         width: 100%;
         border-collapse: collapse;
@@ -59,27 +97,24 @@
         cursor: pointer;
     }
 
-    .locked {
-        opacity: 0.6;
-        pointer-events: none;
-    }
-
-    .controls {
-        margin-top: 30px;
-        text-align: center;
-    }
+    .locked { opacity: 0.6; pointer-events: none; }
+    .controls { margin-top: 30px; text-align: center; }
 
     .low { color: #7CFC00; }
     .mid { color: #FFD700; }
     .high { color: #FF4C4C; }
 
-    .paid {
-        text-decoration: line-through;
-        opacity: 0.5;
-    }
+    .paid { text-decoration: line-through; opacity: 0.5; }
 </style>
 </head>
 <body>
+
+<!-- 🔐 AUTH BOX -->
+<div class="auth-box">
+    <input type="password" id="pw" placeholder="Banker Password">
+    <button onclick="unlock()">Unlock</button>
+    <span id="authStatus"></span>
+</div>
 
 <h1>🏦 MONOPOLY BANK LOAN TRACKER</h1>
 
@@ -104,10 +139,29 @@
 </div>
 
 <script>
+let isUnlocked = false;
+const PASSWORD = "CoolBanker25!";
+
+function unlock() {
+    const input = document.getElementById("pw");
+    if (input.value === PASSWORD) {
+        isUnlocked = true;
+        document.getElementById("authStatus").textContent = "✓";
+        document.getElementById("authStatus").className = "auth-ok";
+        input.value = "";
+    } else {
+        alert("Incorrect password");
+    }
+}
+
 let loans = JSON.parse(localStorage.getItem("monopolyLoans")) || [];
 
 function saveLoans() {
     localStorage.setItem("monopolyLoans", JSON.stringify(loans));
+}
+
+function uid() {
+    return crypto.randomUUID();
 }
 
 function addLoanRow(data = null) {
@@ -128,10 +182,10 @@ function addLoanRow(data = null) {
     const inputs = row.querySelectorAll("input");
     const [enterBtn, paidBtn, removeBtn] = row.querySelectorAll("button");
 
-    let loanRef = null;
+    let loanId = data?.id || null;
 
     enterBtn.onclick = () => {
-        if (loanRef) return;
+        if (!isUnlocked || loanId) return;
 
         const name = inputs[0].value.trim();
         const principal = parseFloat(inputs[1].value);
@@ -142,56 +196,51 @@ function addLoanRow(data = null) {
             return;
         }
 
+        loanId = uid();
         inputs.forEach(i => i.classList.add("locked"));
 
-        loanRef = {
+        loans.push({
+            id: loanId,
             name,
             principal,
             interest,
             startTime: Date.now(),
-            paid: false,
-            row
-        };
+            paid: false
+        });
 
-        loans.push(loanRef);
         saveLoans();
     };
 
     paidBtn.onclick = () => {
-        if (!loanRef) return;
-        loanRef.paid = true;
+        if (!isUnlocked) return;
+        const loan = loans.find(l => l.id === loanId);
+        if (!loan) return;
+        loan.paid = true;
         row.classList.add("paid");
         saveLoans();
     };
 
     removeBtn.onclick = () => {
+        if (!isUnlocked) return;
         tbody.removeChild(row);
-        loans = loans.filter(l => l !== loanRef);
+        loans = loans.filter(l => l.id !== loanId);
         saveLoans();
     };
 
-    // Restore saved loan safely
     if (data) {
+        loanId = data.id;
         inputs[0].value = data.name;
         inputs[1].value = data.principal;
         inputs[2].value = data.interest * 100;
         inputs.forEach(i => i.classList.add("locked"));
-
-        loanRef = {
-            ...data,
-            row
-        };
-
         if (data.paid) row.classList.add("paid");
     }
 
     tbody.appendChild(row);
 }
 
-// Update loop
 setInterval(() => {
     const now = Date.now();
-
     loans.forEach(loan => {
         if (loan.paid) return;
 
@@ -199,26 +248,22 @@ setInterval(() => {
         const periods = minutes / 10;
         const owed = loan.principal * Math.pow(1 + loan.interest, periods);
 
-        const owedCell = loan.row.querySelector(".owed");
-        const timeCell = loan.row.querySelector(".time");
+        const row = [...document.querySelectorAll("#loanTable tbody tr")]
+            .find(r => r.querySelector("input")?.value === loan.name);
 
-        owedCell.textContent = "$" + owed.toFixed(2);
-        owedCell.className = "owed " +
-            (owed < loan.principal * 1.5 ? "low" :
-             owed < loan.principal * 3 ? "mid" : "high");
+        if (!row) return;
 
-        const mins = Math.floor(minutes);
-        const secs = Math.floor((minutes % 1) * 60);
-        timeCell.textContent = `${mins}:${secs.toString().padStart(2,"0")}`;
+        row.querySelector(".owed").textContent = "$" + owed.toFixed(2);
+        row.querySelector(".time").textContent =
+            `${Math.floor(minutes)}:${Math.floor((minutes % 1) * 60).toString().padStart(2,"0")}`;
     });
 }, 1000);
 
-// Restore saved loans ONCE
 const saved = [...loans];
 loans = [];
 saved.forEach(l => {
     addLoanRow(l);
-    loans.push({ ...l, row: document.querySelector("#loanTable tbody tr:last-child") });
+    loans.push(l);
 });
 
 if (saved.length === 0) addLoanRow();
